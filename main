@@ -1,0 +1,392 @@
+import pygame as pg
+pg.init()
+
+from os import path
+from settings import *
+
+img_dir = path.join(path.dirname(__file__), 'img')
+
+import random
+
+vec = pg.math.Vector2
+
+def draw_text(surf, text, size, x, y):
+    WHITE = (255, 255, 255)
+    font_name = pg.font.match_font('arial')
+    font = pg.font.Font(font_name, size)
+    text_surface = font.render(text, True, WHITE)
+    text_rect = text_surface.get_rect()
+    text_rect.midtop = (x, y)
+    surf.blit(text_surface, text_rect)
+
+
+class Spritesheet:
+    # utility class for loading and parsing spritesheets
+    def __init__(self, filename):
+        self.spritesheet = pg.image.load(filename).convert()
+
+    def get_image(self, x, y, width, height):
+        # grab an image out of a larger spritesheet
+        image = pg.Surface((width, height))
+        image.blit(self.spritesheet, (0, 0), (x, y, width, height))
+        image = pg.transform.scale(image, (width // 2, height // 2))
+        return image
+
+
+class Pou(pg.sprite.Sprite):
+    def __init__(self,game):
+        self.game=game
+        self.game.player=self
+        self.game.score=0
+        self.groups=self.game.all_sprites
+        pg.sprite.Sprite.__init__(self,self.groups)
+        self.vel=vec(0,0)
+        self.acc=vec(0,0.5)
+        self.frame=0
+        self.animationlist=[self.game.spritesheet.get_image(566,510,122,139),self.game.spritesheet.get_image(568,1534,122,135)]
+        for i in range(len(self.animationlist)):
+            self.animationlist[i]=pg.transform.scale(self.animationlist[i],(63,63))
+        self.image=self.animationlist[self.frame]
+        self.image.set_colorkey(BLACK)
+        self.rect=self.image.get_rect()
+        self.rect.centery=HEIGHT//2-100
+        self.rect.centerx=WIDTH//2+45
+        self.rotateamount=0
+        self.rotateincreaser=10
+        self.timebeetweenupdates=30
+        self.lastupdated=pg.time.get_ticks()-self.timebeetweenupdates
+        self.timebetweenanimates=300
+        self.lastanimated=pg.time.get_ticks()-self.timebetweenanimates
+        self.rotate=False
+        self.move=False
+        self.jigglevel=3
+        self.jiggleacc=-1
+        self.score=0
+        self.lives=3
+        self.speedlimit=43.5
+        self.coins=0
+
+    def update(self):
+
+        if self.rotateamount!=-90 and self.game.canjump or self.frame==1:
+
+            self.animate()
+
+        self.rotatee()
+
+        new_image=pg.transform.rotate(self.animationlist[self.frame],self.rotateamount)
+        oldcenter=self.rect.center
+        self.image=new_image
+        self.image.set_colorkey(BLACK)
+        self.rect=self.image.get_rect()
+        self.rect.center=oldcenter
+
+        if self.move:
+
+             self.acc = vec(0,0.5)
+             keys = pg.key.get_pressed()
+             if keys[pg.K_LEFT]:
+                 self.acc.x = -1
+             elif keys[pg.K_RIGHT]:
+                 self.acc.x = 1
+
+             self.acc.x += self.vel.x * PLAYER_FRICTION
+             self.vel += self.acc
+             if abs(self.vel.x) < 0.1:
+                 self.vel.x = 0
+             #if self.rect.centerx
+
+             self.rect.center += self.vel + 0.5 * self.acc
+
+             if self.rect.centerx<-self.rect.width//2:
+                 self.rect.centerx=HEIGHT+self.rect.width//2
+
+             if self.rect.centerx>HEIGHT+self.rect.width//2:
+                 self.rect.centerx=-self.rect.width//2
+
+             if self.rect.centery<-self.rect.height//2:
+                 self.game.playing=False
+
+        else:self.jiggle()
+
+    def animate(self):
+        if pg.time.get_ticks()-self.lastanimated>self.timebetweenanimates:
+            self.lastanimated=pg.time.get_ticks()
+            self.frame=(self.frame+1)%len(self.animationlist)
+
+    def rotatee(self):
+        if self.rotate and pg.time.get_ticks()-self.lastupdated>self.timebeetweenupdates:
+            self.lastupdated=pg.time.get_ticks()
+
+            if self.vel.x>0:
+                self.rotateincreaser=-15
+            elif self.vel.x<0:
+                self.rotateincreaser=15
+            elif self.vel.x==0:
+                if self.rotateincreaser!=0:
+                    before=self.rotateincreaser
+                    self.rotateincreaser+=(self.rotateincreaser/abs(self.rotateincreaser))*-1*25
+                    if before<0 and self.rotateincreaser>0 or before>0 and self.rotateincreaser<0:
+                        self.rotateincreaser=0
+
+                else:pass
+
+            self.rotateamount=(self.rotateamount+self.rotateincreaser)%360
+
+    def jiggle(self):
+        self.rect.centerx+=self.jigglevel
+        self.jigglevel+=self.jiggleacc
+        if self.jigglevel<-12 or self.jigglevel>12:
+            self.jigglevel=(self.jigglevel/abs(self.jigglevel))*8
+            self.jiggleacc*=-1
+
+class Pipes():
+
+    vely=-0.2
+    height= 25
+
+    def __init__(self, game, centery):
+        self.game=game
+        vdbps=random.choice([100,150,125])
+        pip1width=random.randrange(30,HEIGHT-30-vdbps+1)
+        pip2width=HEIGHT-(pip1width+vdbps)
+        pip1centerx=pip1width//2
+        pip2centerx=pip1width+vdbps+pip2width//2
+        if random.randrange(0,2)==0:
+            self.pipes=[OnePipe(self.game, self.game.spritesheet.get_image(0,768,380,94), pip1width+100, centery, pip1centerx-50,self.game.spritesheet.get_image(0,672,380,94)),
+                        OnePipe(self.game, self.game.spritesheet.get_image(0,96,380,94), pip2width+100, centery, pip2centerx+50,  self.game.spritesheet.get_image(0,768,380,94))]
+        else:
+            self.pipes=[OnePipe(self.game, self.game.spritesheet.get_image(0,96,380,94), pip1width+100, centery, pip1centerx-50,self.game.spritesheet.get_image(0,768,380,94)),
+                        OnePipe(self.game, self.game.spritesheet.get_image(0,768,380,94), pip2width+100, centery, pip2centerx+50,  self.game.spritesheet.get_image(0,672,380,94))]
+
+        self.centery=centery
+        self.height=Pipes.height
+        self.spawn_new=False
+        self.past=False
+        self.vely=0
+        self.accx=0
+        self.xspeelimit=10
+        self.lastupdated=pg.time.get_ticks()
+        self.timebeetweenupdates=30
+        if random.randrange(0,2)==1:
+            self.accx=random.choice([-1.1])
+        plat=random.choice(self.pipes)
+        if random.randrange(100)<-10:
+            Onplat(self.game,"rock",plat)
+        elif random.randrange(100)<50:
+            for i in range(random.randrange(1,5)):
+                plat=random.choice(self.pipes)
+                Onplat(self.game,"coin",plat)
+
+    def update(self):
+
+        if self.game.player.move:
+            for i in self.pipes:
+                i.rect.centery+=Pipes.vely
+
+        self.centery=self.pipes[0].rect.centery
+        if self.centery<-self.height//2-150:
+            for pipe in self.pipes:
+                pipe.kill()
+            self.game.pipess.remove(self)
+        if self.centery+self.height//2<self.game.player.rect.centerx-self.game.player.rect.width//2 and not self.past:
+            if Pipes.vely>-3.5 and self.game.pipesnumero%10==0:
+                Pipes.vely-=0.1
+            self.past=True
+            self.game.pipesnumero+=1
+            self.game.player.score+=1
+            self.game.playerpast+=1
+        if self.centery-self.height//2<self.game.whentospawn and self.spawn_new==False:
+            self.spawn_new=True
+            self.game.pipess.append(make_pipe(self.game))
+            self.game.whentospawn=random.choice([HEIGHT-100,HEIGHT-50,HEIGHT-150])
+
+        if self.game.playerpast==6:
+                self.game.player.lives+=1
+                if self.game.player.lives>5:
+                    self.game.player.lives=5
+                self.game.playerpast=0
+
+class OnePipe(pg.sprite.Sprite):
+
+    def __init__(self, game, img, width, centery, centerx, otherimage):
+        self.game=game
+        pg.sprite.Sprite.__init__(self,(self.game.pipes,self.game.all_sprites))
+        self.image=img
+        self.image=pg.transform.scale(self.image, (width, Pipes.height))
+        self.image.set_colorkey(BLACK)
+        self.rect=self.image.get_rect()
+        self.rect.centery=centery
+        self.rect.centerx=centerx
+        self.hitme=False
+        self.myimage=img
+        self.width=width
+        self.otherimage=otherimage
+        self.otherimage.set_colorkey(BLACK)
+        self.speedx=0
+
+    def update(self):
+
+        if self.hitme==True:
+            oldcenter=self.rect.center
+            self.image=pg.transform.scale(self.otherimage, (self.width,Pipes.height))
+            self.rect=self.image.get_rect()
+            self.rect.center=oldcenter
+
+class Onplat(pg.sprite.Sprite):
+    def __init__(self,game,type,plat):
+        self.game=game
+        self.groups=self.game.hittbles,self.game.all_sprites
+        if type=="rock":
+            self.groups=self.game.hittbles,self.game.obstacles,self.game.all_sprites
+        pg.sprite.Sprite.__init__(self,self.groups)
+        self.type=type
+        if self.type=="coin":
+            self.image=self.game.spritesheet.get_image(329,1390,60,61)
+            self.value=random.randrange(1,10)
+            if self.value>3:
+                self.image=self.game.spritesheet.get_image(244,1981,61,61)
+        else:
+            self.image=self.game.spritesheet.get_image(645,651,15,84)
+            self.image=pg.transform.scale(self.image,(50,60))
+        self.image.set_colorkey(BLACK)
+        self.rect=self.image.get_rect()
+        self.plat=plat
+        self.rect.centery=self.plat.rect.centery-self.plat.rect.height//2-self.rect.height//2
+        if self.plat.rect.centerx-self.plat.rect.width//2<0:
+            self.rect.centerx=random.randrange(self.plat.rect.centerx-self.plat.rect.width//2+self.rect.width//2+self.plat.rect.width//3,self.plat.rect.centerx+self.plat.rect.width//2-self.rect.width//2+1)
+        else: self.rect.centerx=random.randrange(self.plat.rect.centerx-self.plat.rect.width//2+self.rect.width//2,self.plat.rect.centerx+self.plat.rect.width//2-self.rect.width//2-self.plat.rect.width//3+1)
+        '''
+        if self.type=="coin":
+            hits=pg.sprite.spritecollide(self,self.game.obstacles,False)
+            while hits:
+                if self.plat.rect.centerx-self.plat.rect.width//2<0:
+                    self.rect.centerx=random.randrange(self.plat.rect.centerx-self.plat.rect.width//2+self.rect.width//2+self.plat.rect.width//3,self.plat.rect.centerx+self.plat.rect.width//2-self.rect.width//2+1)
+                else: self.rect.centerx=random.randrange(self.plat.rect.centerx-self.plat.rect.width//2+self.rect.width//2,self.plat.rect.centerx+self.plat.rect.width//2-self.rect.width//2-self.plat.rect.width//3+1)
+                hits=pg.sprite.spritecollide(self,self.game.obstacles,False)
+                print("came",hits)
+        '''
+
+    def update(self):
+        self.rect.centerx+=self.plat.speedx
+        self.rect.centery=self.plat.rect.centery-self.plat.rect.height//2-self.rect.height//2
+        if not self.plat.alive():
+            self.kill()
+
+def make_pipe(game):
+
+    return  Pipes(game,game.whentospawn + random.randrange(game.shortestditanscebeetweenpipe,game.longestdistancebeetweenpipe+1))
+
+class Game:
+    def __init__(self):
+        # initialize game window, etc
+        pg.init()
+        pg.mixer.init()
+        self.screen = pg.display.set_mode((WIDTH, HEIGHT))
+        pg.display.set_caption(TITLE)
+        self.clock = pg.time.Clock()
+        self.running = True
+        self.spritesheet = Spritesheet(path.join(img_dir, SPRITESHEET))
+
+    def new(self):
+        # start a new game
+        self.all_sprites = pg.sprite.Group()
+        self.player = Pou(self)
+        self.all_sprites.add(self.player)
+        self.pipes=pg.sprite.Group()
+        self.canjump=True
+        self.shortestditanscebeetweenpipe=125
+        self.longestdistancebeetweenpipe=175
+        self.whentospawn=random.choice([HEIGHT-100,HEIGHT-50,HEIGHT-150])
+        self.powerups=pg.sprite.Group()
+        self.hittbles=pg.sprite.Group()
+        self.obstacles=pg.sprite.Group()
+        self.pipess=[Pipes(self, WIDTH + (Pipes.height // 2))]
+        Pipes.vely=-4
+        self.pipesnumero=1
+        self.playerpast=0
+        self.run()
+
+    def run(self):
+        # Game Loop
+        self.playing = True
+        while self.playing:
+            self.clock.tick(FPS)
+            self.events()
+            self.update()
+            self.draw()
+
+    def update(self):
+        # Game Loop - Update
+        self.all_sprites.update()
+        if self.player.move and self.canjump:
+            for pipe in self.pipess:
+                pipe.update()
+
+        hit=pg.sprite.spritecollide(self.player,self.pipes,False)
+        if hit:
+            if self.player.rect.centerx<hit[0].rect.centerx+hit[0].rect.width//2 and \
+            self.player.rect.centerx>hit[0].rect.centerx-hit[0].rect.width//2 and self.player.rect.centery<hit[0].rect.centery-5:
+                self.player.rect.centery=hit[0].rect.centery-hit[0].rect.height//2-self.player.rect.height//2
+                self.player.vel.y=0
+                hit[0].hitme=True
+
+        hits=pg.sprite.spritecollide(self.player,self.hittbles,False)
+        for hit in hits:
+            if hit.type=="coin":
+                self.player.coins+=hit.value
+                hit.kill()
+            elif hit.type=="rock":
+                if self.player.vel.x>0:
+                    self.player.rect.centerx=hit.rect.centerx-hit.rect.width//2-self.player.rect.width//2
+                    self.player.vel.x=0
+                elif self.player.vel.x<0:
+                    self.player.rect.centerx=hit.rect.centerx+hit.rect.width//2+self.player.rect.width//2
+                    self.player.vel.x=0
+                else:pass
+
+        if self.player.rect.centery>HEIGHT-self.player.rect.height-15:
+            for i in self.pipes:
+                i.rect.centery+=abs(self.player.vel.y)*-1
+            self.player.rect.centery+=abs(self.player.vel.y)*-1
+
+    def events(self):
+
+        for event in pg.event.get():
+
+            if event.type == pg.QUIT:
+
+                if self.playing:
+                    self.playing = False
+                self.running = False
+
+            if event.type == pg.KEYDOWN:
+
+                if event.key == pg.K_SPACE:
+                    self.player.move=True
+                    self.player.rotate=True
+                    self.player.timebetweenanimates=150
+
+            if event.type == pg.KEYUP:
+
+                if event.key == pg.K_SPACE:
+                    pass
+
+    def draw(self):
+        # Game Loop - draw
+        self.screen.fill(LIGHTBLUE)
+        self.all_sprites.draw(self.screen)
+        draw_text(self.screen,str(self.player.score),63,WIDTH//2,50)
+        draw_text(self.screen,str(self.player.coins),63,50,50)
+
+        #draw_text(self.screen,self.player.score,55,WIDTH//2,50)
+
+        # *after* drawing everything, flip the display
+        pg.display.flip()
+
+g = Game()
+while g.running:
+    g.new()
+pg.quit()
+
+
